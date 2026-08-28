@@ -2,7 +2,8 @@ import React, { createContext, useState, useContext, useEffect, useMemo } from '
 
 const FinanceContext = createContext();
 // Reemplaza la URL fija de localhost por la variable de entorno
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API_URL = BASE_URL.endsWith('/api') ? BASE_URL : `${BASE_URL}/api`;
 
 export const MONTHS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
