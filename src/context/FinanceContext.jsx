@@ -2,7 +2,6 @@ import React, { createContext, useState, useContext, useEffect, useMemo } from '
 
 const FinanceContext = createContext();
 
-// Reemplaza la URL fija de localhost por la variable de entorno
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 const API_URL = BASE_URL.endsWith('/api') ? BASE_URL : `${BASE_URL}/api`;
 
@@ -11,15 +10,33 @@ export const MONTHS = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ];
 
-export const CATEGORIES = [
-  'Comida & Súper',
-  'Servicios Básicos',
-  'Vivienda & Renta',
-  'Transporte',
-  'Entretenimiento',
-  'Sueldo Principal',
-  'Aporte a Ahorro'
-];
+// Estructura dual compatible: funciona como Objeto clasificado y expone un getter a lista plana
+export const CATEGORIES = {
+  gasto: [
+    { name: 'Comida & Súper', type: 'necesidad' },
+    { name: 'Servicios Básicos', type: 'necesidad' },
+    { name: 'Vivienda & Renta', type: 'necesidad' },
+    { name: 'Transporte', type: 'necesidad' },
+    { name: 'Entretenimiento', type: 'deseo' }
+  ],
+  ingreso: [
+    { name: 'Sueldo Principal' },
+    { name: 'Ventas / Freelance' }
+  ],
+  ahorro: [
+    { name: 'Aporte a Ahorro' }
+  ],
+  // Array plano por omisión para compatibilidad con selectores simples
+  all: [
+    'Comida & Súper',
+    'Servicios Básicos',
+    'Vivienda & Renta',
+    'Transporte',
+    'Entretenimiento',
+    'Sueldo Principal',
+    'Aporte a Ahorro'
+  ]
+};
 
 export const FinanceProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -36,6 +53,15 @@ export const FinanceProvider = ({ children }) => {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`
   });
+
+  // Normalizador de objetos para asegurar siempre una propiedad .id
+  const normalizeItem = (item) => {
+    if (!item || typeof item !== 'object') return item;
+    return {
+      ...item,
+      id: item.id || item._id || item.name
+    };
+  };
 
   // Autenticación
   const login = async (email, password) => {
@@ -73,8 +99,10 @@ export const FinanceProvider = ({ children }) => {
     setCategories([]);
   };
 
-  // Carga inicial de datos
+  // Carga inicial de datos protegida contra Race Conditions
   useEffect(() => {
+    let isMounted = true;
+
     if (!token) {
       setLoading(false);
       return;
@@ -91,39 +119,50 @@ export const FinanceProvider = ({ children }) => {
         ]);
 
         if (userRes.status === 401 || txRes.status === 401 || goalsRes.status === 401 || catRes.status === 401) {
-          logout();
+          if (isMounted) logout();
           return;
         }
 
+        if (!isMounted) return;
+
         if (userRes.ok) {
           const userData = await userRes.json();
-          setUser(userData.user);
+          setUser(userData.user || userData);
         }
 
         if (txRes.ok) {
           const txData = await txRes.json();
-          setTransactions(Array.isArray(txData) ? txData : (txData.data || []));
+          const rawList = Array.isArray(txData) ? txData : (txData.data || []);
+          setTransactions(rawList.map(normalizeItem));
         }
 
         if (goalsRes.ok) {
           const goalsData = await goalsRes.json();
-          setSavingGoals(Array.isArray(goalsData) ? goalsData : (goalsData.data || []));
+          const rawGoals = Array.isArray(goalsData) ? goalsData : (goalsData.data || []);
+          setSavingGoals(rawGoals.map(normalizeItem));
         }
 
         if (catRes.ok) {
           const catData = await catRes.json();
-          setCategories(Array.isArray(catData) ? catData : (catData.data || []));
+          const rawCats = Array.isArray(catData) ? catData : (catData.data || []);
+          const normalizedCats = rawCats.map(normalizeItem);
+          // Si la API devuelve vacíos, fall back a CATEGORIES por defecto
+          setCategories(normalizedCats.length > 0 ? normalizedCats : CATEGORIES.all);
         } else {
-          setCategories([]);
+          setCategories(CATEGORIES.all);
         }
       } catch (err) {
         console.error('Error cargando datos:', err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
     loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [token]);
 
   // Transacciones
@@ -139,8 +178,8 @@ export const FinanceProvider = ({ children }) => {
       throw new Error(data.error || data.errors?.[0]?.msg || 'Error al guardar la transacción');
     }
 
-    const savedTx = data.transaction || data.data || data;
-    const formattedTx = { ...savedTx, amount: Number(savedTx.amount) };
+    const savedTx = normalizeItem(data.transaction || data.data || data);
+    const formattedTx = { ...savedTx, amount: Number(savedTx.amount) || 0 };
     
     setTransactions((prev) => [formattedTx, ...(Array.isArray(prev) ? prev : [])]);
     return formattedTx;
@@ -152,7 +191,7 @@ export const FinanceProvider = ({ children }) => {
       const data = await res.json();
       throw new Error(data.error || 'Error al eliminar la transacción');
     }
-    setTransactions((prev) => prev.filter((t) => t.id !== id));
+    setTransactions((prev) => prev.filter((t) => (t.id || t._id) !== id));
   };
 
   // Metas de Ahorro
@@ -164,17 +203,21 @@ export const FinanceProvider = ({ children }) => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Error al agregar meta');
-    const newGoalObj = data.goal || data.data || data;
+    const newGoalObj = normalizeItem(data.goal || data.data || data);
     setSavingGoals((prev) => [...(Array.isArray(prev) ? prev : []), newGoalObj]);
     return newGoalObj;
   };
 
   const updateGoalProgress = async (id, current) => {
-    const res = await fetch(`${API_URL}/goals/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ current }) });
+    const res = await fetch(`${API_URL}/goals/${id}`, { 
+      method: 'PUT', 
+      headers: authHeaders(), 
+      body: JSON.stringify({ current: Number(current) || 0 }) 
+    });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Error al actualizar meta');
-    const updatedGoal = data.goal || data.data || data;
-    setSavingGoals((prev) => prev.map((g) => (g.id === id ? updatedGoal : g)));
+    const updatedGoal = normalizeItem(data.goal || data.data || data);
+    setSavingGoals((prev) => prev.map((g) => ((g.id || g._id) === id ? updatedGoal : g)));
     return updatedGoal;
   };
 
@@ -184,7 +227,7 @@ export const FinanceProvider = ({ children }) => {
       const data = await res.json();
       throw new Error(data.error || 'Error al eliminar meta');
     }
-    setSavingGoals((prev) => prev.filter((g) => g.id !== id));
+    setSavingGoals((prev) => prev.filter((g) => (g.id || g._id) !== id));
   };
 
   // Categorías
@@ -197,8 +240,7 @@ export const FinanceProvider = ({ children }) => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Error al agregar categoría');
     
-    // Extrae la categoría independiente del envoltorio devuelto por el servidor
-    const newCategory = data.category || data.data || data;
+    const newCategory = normalizeItem(data.category || data.data || data);
     setCategories((prev) => [...(Array.isArray(prev) ? prev : []), newCategory]);
     return newCategory;
   }; 
@@ -209,28 +251,36 @@ export const FinanceProvider = ({ children }) => {
       const data = await res.json();
       throw new Error(data.error || 'Error al eliminar categoría');
     }
-    setCategories((prev) => prev.filter((c) => c.id !== id));
+    setCategories((prev) => prev.filter((c) => (c.id || c._id) !== id));
   };
 
-  // Exportar Excel
+  // Exportar Excel limpiando referencias de memoria
   const exportToExcel = async () => {
-    const res = await fetch(`${API_URL}/export/excel?month=${selectedMonth}&year=${selectedYear}`, {
-      headers: authHeaders()
-    });
-    if (!res.ok) throw new Error('Error al descargar el archivo Excel');
-    const blob = await res.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Reporte_${selectedYear}_${selectedMonth + 1}.xlsx`;
-    a.click();
+    try {
+      const res = await fetch(`${API_URL}/export/excel?month=${selectedMonth}&year=${selectedYear}`, {
+        headers: authHeaders()
+      });
+      if (!res.ok) throw new Error('Error al descargar el archivo Excel');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Reporte_${selectedYear}_${selectedMonth + 1}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error al exportar:', error);
+      alert('Ocurrió un error al generar la exportación en Excel.');
+    }
   };
 
-  // Filtrado y totales (Parsing directo por string sin UTC offset)
+  // Filtrado y totales por año/mes
   const filteredTransactions = useMemo(() => {
     const safeTxList = Array.isArray(transactions) ? transactions : [];
     return safeTxList.filter((tx) => {
-      if (!tx.date) return false;
+      if (!tx?.date) return false;
       const dateStr = String(tx.date).split('T')[0];
       const [yearStr, monthStr] = dateStr.split('-');
       
