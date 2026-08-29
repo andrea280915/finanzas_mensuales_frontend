@@ -3,16 +3,27 @@ import { useFinance, MONTHS } from '../context/FinanceContext';
 import { ListChecks, Search, Trash2, FolderOpen } from 'lucide-react';
 
 export const TransactionList = () => {
-  const { filteredTransactions, selectedMonth, selectedYear, deleteTransaction } = useFinance();
+  const { filteredTransactions = [], selectedMonth, selectedYear, deleteTransaction } = useFinance();
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredList = useMemo(() => {
-    if (!searchTerm) return filteredTransactions;
-    return filteredTransactions.filter(
-      (t) =>
-        (t.note && t.note.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (t.category && t.category.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    const safeList = Array.isArray(filteredTransactions) ? filteredTransactions : [];
+    if (!searchTerm.trim()) return safeList;
+
+    const term = searchTerm.toLowerCase().trim();
+
+    return safeList.filter((t) => {
+      if (!t) return false;
+
+      // Extraer nombre de categoría de forma segura (sea string u objeto)
+      const catName = typeof t.category === 'object' && t.category !== null 
+        ? (t.category.name || '')
+        : String(t.category || '');
+
+      const noteText = String(t.note || t.description || '');
+
+      return noteText.toLowerCase().includes(term) || catName.toLowerCase().includes(term);
+    });
   }, [filteredTransactions, searchTerm]);
 
   return (
@@ -21,7 +32,7 @@ export const TransactionList = () => {
         <div>
           <h3 className="text-base font-bold text-slate-800 flex items-center">
             <ListChecks className="w-5 h-5 text-slate-600 mr-2" />
-            Movimientos de {MONTHS[selectedMonth]} {selectedYear}
+            Movimientos de {MONTHS[selectedMonth] || ''} {selectedYear}
           </h3>
           <p className="text-xs text-slate-500">{filteredList.length} registros encontrados</p>
         </div>
@@ -29,7 +40,7 @@ export const TransactionList = () => {
         <div className="relative w-full sm:w-64">
           <input
             type="text"
-            placeholder="Buscar por detalle..."
+            placeholder="Buscar por detalle o categoría..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-8 pr-3 py-1.5 bg-slate-100 border border-slate-200 text-xs rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
@@ -52,13 +63,22 @@ export const TransactionList = () => {
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
               {filteredList.map((tx) => {
+                if (!tx) return null;
+
                 const isExpense = tx.type === 'gasto';
                 const isIncome = tx.type === 'ingreso';
                 const amountNum = Number(tx.amount) || 0;
-                const formattedDate = tx.date ? tx.date.split('T')[0] : '';
+                const formattedDate = tx.date ? String(tx.date).split('T')[0] : '';
+
+                // Normalizar visualización de la categoría y detalle
+                const catDisplay = typeof tx.category === 'object' && tx.category !== null 
+                  ? tx.category.name 
+                  : (tx.category || 'Sin categoría');
+                
+                const detailDisplay = tx.note || tx.description || catDisplay;
 
                 return (
-                  <tr key={tx.id} className="hover:bg-slate-50/80 transition-colors">
+                  <tr key={tx.id || Math.random()} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3 px-2">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         isIncome ? 'bg-emerald-100 text-emerald-800' :
@@ -70,8 +90,8 @@ export const TransactionList = () => {
 
                     <td className="py-3 px-2">
                       <div>
-                        <p className="font-bold text-slate-800">{tx.note || tx.category}</p>
-                        <p className="text-[10px] text-slate-400">{tx.category}</p>
+                        <p className="font-bold text-slate-800">{detailDisplay}</p>
+                        <p className="text-[10px] text-slate-400">{catDisplay}</p>
                       </div>
                     </td>
 
