@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useMemo } from 'react';
 
 const FinanceContext = createContext();
+
 // Reemplaza la URL fija de localhost por la variable de entorno
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 const API_URL = BASE_URL.endsWith('/api') ? BASE_URL : `${BASE_URL}/api`;
@@ -72,57 +73,56 @@ export const FinanceProvider = ({ children }) => {
     setCategories([]);
   };
 
-  // Carga inicial de datos y verificación de usuario tras autenticar
-useEffect(() => {
-  if (!token) {
-    setLoading(false);
-    return;
-  }
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      // 1. Obtener datos del usuario logueado + datos de la app
-      const [userRes, txRes, goalsRes, catRes] = await Promise.all([
-        fetch(`${API_URL}/auth/me`, { headers: authHeaders() }),
-        fetch(`${API_URL}/transactions`, { headers: authHeaders() }),
-        fetch(`${API_URL}/goals`, { headers: authHeaders() }),
-        fetch(`${API_URL}/categories`, { headers: authHeaders() })
-      ]);
-
-      if (userRes.status === 401 || txRes.status === 401 || goalsRes.status === 401 || catRes.status === 401) {
-        logout();
-        return;
-      }
-
-      if (userRes.ok) {
-        const userData = await userRes.json();
-        setUser(userData.user);
-      }
-
-      if (txRes.ok) {
-        const txData = await txRes.json();
-        setTransactions(Array.isArray(txData) ? txData : (txData.data || []));
-      }
-
-      if (goalsRes.ok) {
-        const goalsData = await goalsRes.json();
-        setSavingGoals(Array.isArray(goalsData) ? goalsData : []);
-      }
-
-      if (catRes.ok) {
-        const catData = await catRes.json();
-        setCategories(Array.isArray(catData) ? catData : []);
-      }
-    } catch (err) {
-      console.error('Error cargando datos:', err);
-    } finally {
+  // Carga inicial de datos
+  useEffect(() => {
+    if (!token) {
       setLoading(false);
+      return;
     }
-  };
 
-  loadData();
-}, [token]);
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const [userRes, txRes, goalsRes, catRes] = await Promise.all([
+          fetch(`${API_URL}/auth/me`, { headers: authHeaders() }),
+          fetch(`${API_URL}/transactions`, { headers: authHeaders() }),
+          fetch(`${API_URL}/goals`, { headers: authHeaders() }),
+          fetch(`${API_URL}/categories`, { headers: authHeaders() })
+        ]);
+
+        if (userRes.status === 401 || txRes.status === 401 || goalsRes.status === 401 || catRes.status === 401) {
+          logout();
+          return;
+        }
+
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          setUser(userData.user);
+        }
+
+        if (txRes.ok) {
+          const txData = await txRes.json();
+          setTransactions(Array.isArray(txData) ? txData : (txData.data || []));
+        }
+
+        if (goalsRes.ok) {
+          const goalsData = await goalsRes.json();
+          setSavingGoals(Array.isArray(goalsData) ? goalsData : []);
+        }
+
+        if (catRes.ok) {
+          const catData = await catRes.json();
+          setCategories(Array.isArray(catData) ? catData : []);
+        }
+      } catch (err) {
+        console.error('Error cargando datos:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [token]);
 
   // Transacciones
   const addTransaction = async (newTx) => {
@@ -131,15 +131,23 @@ useEffect(() => {
       headers: authHeaders(),
       body: JSON.stringify(newTx)
     });
-    if (res.ok) {
-      const created = await res.json();
-      setTransactions((prev) => [created, ...prev]);
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || data.errors?.[0]?.msg || 'Error al guardar la transacción');
     }
+
+    setTransactions((prev) => [data, ...prev]);
+    return data;
   };
 
   const deleteTransaction = async (id) => {
     const res = await fetch(`${API_URL}/transactions/${id}`, { method: 'DELETE', headers: authHeaders() });
-    if (res.ok) setTransactions((prev) => prev.filter((t) => t.id !== id));
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Error al eliminar la transacción');
+    }
+    setTransactions((prev) => prev.filter((t) => t.id !== id));
   };
 
   // Metas de Ahorro
@@ -149,23 +157,27 @@ useEffect(() => {
       headers: authHeaders(), 
       body: JSON.stringify(newGoal) 
     });
-    if (res.ok) {
-      const createdGoal = await res.json();
-      setSavingGoals((prev) => [...prev, createdGoal]);
-    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al agregar meta');
+    setSavingGoals((prev) => [...prev, data]);
+    return data;
   };
 
   const updateGoalProgress = async (id, current) => {
     const res = await fetch(`${API_URL}/goals/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ current }) });
-    if (res.ok) {
-      const updated = await res.json();
-      setSavingGoals((prev) => prev.map((g) => (g.id === id ? updated : g)));
-    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al actualizar meta');
+    setSavingGoals((prev) => prev.map((g) => (g.id === id ? data : g)));
+    return data;
   };
 
   const deleteGoal = async (id) => {
     const res = await fetch(`${API_URL}/goals/${id}`, { method: 'DELETE', headers: authHeaders() });
-    if (res.ok) setSavingGoals((prev) => prev.filter((g) => g.id !== id));
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Error al eliminar meta');
+    }
+    setSavingGoals((prev) => prev.filter((g) => g.id !== id));
   };
 
   // Categorías
@@ -175,15 +187,19 @@ useEffect(() => {
       headers: authHeaders(), 
       body: JSON.stringify(cat) 
     });
-    if (res.ok) {
-      const createdCategory = await res.json();
-      setCategories((prev) => [...prev, createdCategory]);
-    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al agregar categoría');
+    setCategories((prev) => [...prev, data]);
+    return data;
   }; 
 
   const deleteCategory = async (id) => {
     const res = await fetch(`${API_URL}/categories/${id}`, { method: 'DELETE', headers: authHeaders() });
-    if (res.ok) setCategories((prev) => prev.filter((c) => c.id !== id));
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Error al eliminar categoría');
+    }
+    setCategories((prev) => prev.filter((c) => c.id !== id));
   };
 
   // Exportar Excel
@@ -191,6 +207,7 @@ useEffect(() => {
     const res = await fetch(`${API_URL}/export/excel?month=${selectedMonth}&year=${selectedYear}`, {
       headers: authHeaders()
     });
+    if (!res.ok) throw new Error('Error al descargar el archivo Excel');
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -199,16 +216,27 @@ useEffect(() => {
     a.click();
   };
 
+  // Filtrado y totales
   const filteredTransactions = useMemo(() => {
     return transactions.filter((tx) => {
-      const d = new Date(tx.date + 'T00:00:00');
+      if (!tx.date) return false;
+      const d = new Date(tx.date.includes('T') ? tx.date : tx.date + 'T00:00:00');
       return d.getUTCMonth() === selectedMonth && d.getUTCFullYear() === selectedYear;
     });
   }, [transactions, selectedMonth, selectedYear]);
 
-  const totalIncome = useMemo(() => filteredTransactions.filter((t) => t.type === 'ingreso').reduce((a, b) => a + b.amount, 0), [filteredTransactions]);
-  const totalExpense = useMemo(() => filteredTransactions.filter((t) => t.type === 'gasto').reduce((a, b) => a + b.amount, 0), [filteredTransactions]);
-  const totalSavedInMonth = useMemo(() => filteredTransactions.filter((t) => t.type === 'ahorro').reduce((a, b) => a + b.amount, 0), [filteredTransactions]);
+  const totalIncome = useMemo(() => 
+    filteredTransactions.filter((t) => t.type === 'ingreso').reduce((a, b) => a + Number(b.amount), 0), 
+    [filteredTransactions]
+  );
+  const totalExpense = useMemo(() => 
+    filteredTransactions.filter((t) => t.type === 'gasto').reduce((a, b) => a + Number(b.amount), 0), 
+    [filteredTransactions]
+  );
+  const totalSavedInMonth = useMemo(() => 
+    filteredTransactions.filter((t) => t.type === 'ahorro').reduce((a, b) => a + Number(b.amount), 0), 
+    [filteredTransactions]
+  );
   const netBalance = totalIncome - totalExpense - totalSavedInMonth;
 
   return (
