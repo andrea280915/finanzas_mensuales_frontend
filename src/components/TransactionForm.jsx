@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useFinance, CATEGORIES } from '../context/FinanceContext';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, Loader2 } from 'lucide-react';
 
 export const TransactionForm = () => {
   const { categories: customCategories, addTransaction } = useFinance();
   const [type, setType] = useState('gasto');
   const [amount, setAmount] = useState('');
+  const [loading, setLoading] = useState(false);
   
   // Normalizar las categorías disponibles (strings)
   const availableCategories = Array.isArray(customCategories) && customCategories.length > 0
@@ -23,22 +24,32 @@ export const TransactionForm = () => {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const numVal = parseFloat(amount);
     if (!numVal || numVal <= 0) return;
 
-    addTransaction({
-      id: Date.now(),
-      type,
-      amount: numVal,
-      category,
-      date,
-      note: note.trim() || category,
-    });
+    setLoading(true);
 
-    setAmount('');
-    setNote('');
+    try {
+      // Esperar a que se complete la petición HTTP en el context
+      await addTransaction({
+        type,
+        amount: numVal,
+        category,
+        date,
+        note: note.trim() || category,
+      });
+
+      // Solo limpiar si la transacción se guardó correctamente
+      setAmount('');
+      setNote('');
+    } catch (error) {
+      console.error('❌ Error al guardar transacción:', error);
+      alert('Ocurrió un error al guardar la transacción. Revisa la consola.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -134,9 +145,17 @@ export const TransactionForm = () => {
 
         <button
           type="submit"
-          className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm shadow-md transition-all active:scale-[0.98]"
+          disabled={loading}
+          className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm shadow-md transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center"
         >
-          Guardar Transacción
+          {loading ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Guardando...
+            </>
+          ) : (
+            'Guardar Transacción'
+          )}
         </button>
       </form>
     </div>
