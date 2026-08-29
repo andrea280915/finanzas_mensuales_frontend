@@ -107,12 +107,14 @@ export const FinanceProvider = ({ children }) => {
 
         if (goalsRes.ok) {
           const goalsData = await goalsRes.json();
-          setSavingGoals(Array.isArray(goalsData) ? goalsData : []);
+          setSavingGoals(Array.isArray(goalsData) ? goalsData : (goalsData.data || []));
         }
 
         if (catRes.ok) {
           const catData = await catRes.json();
-          setCategories(Array.isArray(catData) ? catData : []);
+          setCategories(Array.isArray(catData) ? catData : (catData.data || []));
+        } else {
+          setCategories([]);
         }
       } catch (err) {
         console.error('Error cargando datos:', err);
@@ -137,8 +139,10 @@ export const FinanceProvider = ({ children }) => {
       throw new Error(data.error || data.errors?.[0]?.msg || 'Error al guardar la transacción');
     }
 
-    const formattedTx = { ...data, amount: Number(data.amount) };
-    setTransactions((prev) => [formattedTx, ...prev]);
+    const savedTx = data.transaction || data.data || data;
+    const formattedTx = { ...savedTx, amount: Number(savedTx.amount) };
+    
+    setTransactions((prev) => [formattedTx, ...(Array.isArray(prev) ? prev : [])]);
     return formattedTx;
   };
 
@@ -160,16 +164,18 @@ export const FinanceProvider = ({ children }) => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Error al agregar meta');
-    setSavingGoals((prev) => [...prev, data]);
-    return data;
+    const newGoalObj = data.goal || data.data || data;
+    setSavingGoals((prev) => [...(Array.isArray(prev) ? prev : []), newGoalObj]);
+    return newGoalObj;
   };
 
   const updateGoalProgress = async (id, current) => {
     const res = await fetch(`${API_URL}/goals/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ current }) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Error al actualizar meta');
-    setSavingGoals((prev) => prev.map((g) => (g.id === id ? data : g)));
-    return data;
+    const updatedGoal = data.goal || data.data || data;
+    setSavingGoals((prev) => prev.map((g) => (g.id === id ? updatedGoal : g)));
+    return updatedGoal;
   };
 
   const deleteGoal = async (id) => {
@@ -190,8 +196,11 @@ export const FinanceProvider = ({ children }) => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Error al agregar categoría');
-    setCategories((prev) => [...prev, data]);
-    return data;
+    
+    // Extrae la categoría independiente del envoltorio devuelto por el servidor
+    const newCategory = data.category || data.data || data;
+    setCategories((prev) => [...(Array.isArray(prev) ? prev : []), newCategory]);
+    return newCategory;
   }; 
 
   const deleteCategory = async (id) => {
@@ -219,7 +228,8 @@ export const FinanceProvider = ({ children }) => {
 
   // Filtrado y totales (Parsing directo por string sin UTC offset)
   const filteredTransactions = useMemo(() => {
-    return transactions.filter((tx) => {
+    const safeTxList = Array.isArray(transactions) ? transactions : [];
+    return safeTxList.filter((tx) => {
       if (!tx.date) return false;
       const dateStr = String(tx.date).split('T')[0];
       const [yearStr, monthStr] = dateStr.split('-');
@@ -232,15 +242,15 @@ export const FinanceProvider = ({ children }) => {
   }, [transactions, selectedMonth, selectedYear]);
 
   const totalIncome = useMemo(() => 
-    filteredTransactions.filter((t) => t.type === 'ingreso').reduce((a, b) => a + Number(b.amount), 0), 
+    filteredTransactions.filter((t) => t.type === 'ingreso').reduce((a, b) => a + Number(b.amount || 0), 0), 
     [filteredTransactions]
   );
   const totalExpense = useMemo(() => 
-    filteredTransactions.filter((t) => t.type === 'gasto').reduce((a, b) => a + Number(b.amount), 0), 
+    filteredTransactions.filter((t) => t.type === 'gasto').reduce((a, b) => a + Number(b.amount || 0), 0), 
     [filteredTransactions]
   );
   const totalSavedInMonth = useMemo(() => 
-    filteredTransactions.filter((t) => t.type === 'ahorro').reduce((a, b) => a + Number(b.amount), 0), 
+    filteredTransactions.filter((t) => t.type === 'ahorro').reduce((a, b) => a + Number(b.amount || 0), 0), 
     [filteredTransactions]
   );
   const netBalance = totalIncome - totalExpense - totalSavedInMonth;
