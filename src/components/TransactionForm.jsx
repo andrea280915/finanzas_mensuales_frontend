@@ -1,21 +1,42 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useFinance, CATEGORIES } from '../context/FinanceContext';
 import { PlusCircle, Loader2 } from 'lucide-react';
 
 export const TransactionForm = () => {
-  const { categories: customCategories, addTransaction } = useFinance();
+  const { categories: customCategories = [], addTransaction } = useFinance();
   const [type, setType] = useState('gasto');
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
-  
-  // Normalizar las categorías disponibles (strings)
-  const availableCategories = Array.isArray(customCategories) && customCategories.length > 0
-    ? customCategories.map(c => typeof c === 'string' ? c : c.name)
-    : CATEGORIES;
 
-  const [category, setCategory] = useState(availableCategories[0] || '');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  // 1. Normalización segura de categorías
+  const availableCategories = useMemo(() => {
+    if (Array.isArray(customCategories) && customCategories.length > 0) {
+      return customCategories.map((c) =>
+        typeof c === 'object' && c !== null ? c.name || '' : String(c)
+      ).filter(Boolean);
+    }
+    return Array.isArray(CATEGORIES) ? CATEGORIES : ['General'];
+  }, [customCategories]);
+
+  // 2. Fecha local exacta (sin desfasaje por ISO/UTC)
+  const getTodayLocal = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const [category, setCategory] = useState('');
+  const [date, setDate] = useState(getTodayLocal());
   const [note, setNote] = useState('');
+
+  // 3. Sincronizar categoría por defecto cuando las categorías terminen de cargar
+  useEffect(() => {
+    if (availableCategories.length > 0 && (!category || !availableCategories.includes(category))) {
+      setCategory(availableCategories[0]);
+    }
+  }, [availableCategories, category]);
 
   const handleTypeChange = (newType) => {
     setType(newType);
@@ -27,26 +48,30 @@ export const TransactionForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const numVal = parseFloat(amount);
-    if (!numVal || numVal <= 0) return;
+    
+    // Validación estricta de monto numérico
+    if (isNaN(numVal) || numVal <= 0) {
+      alert('Ingresa un monto válido mayor a 0.');
+      return;
+    }
 
     setLoading(true);
 
     try {
-      // Esperar a que se complete la petición HTTP en el context
       await addTransaction({
         type,
         amount: numVal,
-        category,
+        category: category || availableCategories[0] || 'General',
         date,
-        note: note.trim() || category,
+        note: note.trim() || category || 'Sin detalle',
       });
 
-      // Solo limpiar si la transacción se guardó correctamente
+      // Resetear campos tras éxito
       setAmount('');
       setNote('');
     } catch (error) {
       console.error('❌ Error al guardar transacción:', error);
-      alert('Ocurrió un error al guardar la transacción. Revisa la consola.');
+      alert('Ocurrió un error al guardar la transacción.');
     } finally {
       setLoading(false);
     }
@@ -60,6 +85,7 @@ export const TransactionForm = () => {
       </h3>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Selector de Tipo */}
         <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl">
           <button
             type="button"
@@ -90,6 +116,7 @@ export const TransactionForm = () => {
           </button>
         </div>
 
+        {/* Monto */}
         <div>
           <label className="block text-xs font-bold text-slate-600 mb-1">Monto (S/)</label>
           <div className="relative">
@@ -97,6 +124,7 @@ export const TransactionForm = () => {
             <input
               type="number"
               step="0.01"
+              min="0.01"
               placeholder="0.00"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
@@ -106,6 +134,7 @@ export const TransactionForm = () => {
           </div>
         </div>
 
+        {/* Categoría */}
         <div>
           <label className="block text-xs font-bold text-slate-600 mb-1">Categoría</label>
           <select
@@ -121,6 +150,7 @@ export const TransactionForm = () => {
           </select>
         </div>
 
+        {/* Fecha */}
         <div>
           <label className="block text-xs font-bold text-slate-600 mb-1">Fecha</label>
           <input
@@ -132,6 +162,7 @@ export const TransactionForm = () => {
           />
         </div>
 
+        {/* Nota o Detalle */}
         <div>
           <label className="block text-xs font-bold text-slate-600 mb-1">Nota o Detalle</label>
           <input
@@ -143,6 +174,7 @@ export const TransactionForm = () => {
           />
         </div>
 
+        {/* Botón de Enviar */}
         <button
           type="submit"
           disabled={loading}
