@@ -137,8 +137,9 @@ export const FinanceProvider = ({ children }) => {
       throw new Error(data.error || data.errors?.[0]?.msg || 'Error al guardar la transacción');
     }
 
-    setTransactions((prev) => [data, ...prev]);
-    return data;
+    const formattedTx = { ...data, amount: Number(data.amount) };
+    setTransactions((prev) => [formattedTx, ...prev]);
+    return formattedTx;
   };
 
   const deleteTransaction = async (id) => {
@@ -216,12 +217,17 @@ export const FinanceProvider = ({ children }) => {
     a.click();
   };
 
-  // Filtrado y totales
+  // Filtrado y totales (Parsing directo por string sin UTC offset)
   const filteredTransactions = useMemo(() => {
     return transactions.filter((tx) => {
       if (!tx.date) return false;
-      const d = new Date(tx.date.includes('T') ? tx.date : tx.date + 'T00:00:00');
-      return d.getUTCMonth() === selectedMonth && d.getUTCFullYear() === selectedYear;
+      const dateStr = String(tx.date).split('T')[0];
+      const [yearStr, monthStr] = dateStr.split('-');
+      
+      const txYear = parseInt(yearStr, 10);
+      const txMonth = parseInt(monthStr, 10) - 1;
+
+      return txMonth === selectedMonth && txYear === selectedYear;
     });
   }, [transactions, selectedMonth, selectedYear]);
 
