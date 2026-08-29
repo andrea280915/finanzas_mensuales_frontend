@@ -10,42 +10,62 @@ const CATEGORY_COLORS = [
 ];
 
 export const Charts = () => {
-  // 1. Extraer todas las variables requeridas desde el Context
-  const { filteredTransactions, transactions, selectedMonth, selectedYear } = useFinance();
+  // 1. Extraer variables del Context con valores por defecto defensivos
+  const { filteredTransactions = [], transactions = [], selectedMonth, selectedYear } = useFinance();
 
   const expensePieData = useMemo(() => {
     const catMap = {};
-    filteredTransactions
-      .filter((t) => t.type === 'gasto')
+    
+    (Array.isArray(filteredTransactions) ? filteredTransactions : [])
+      .filter((t) => t && t.type === 'gasto')
       .forEach((t) => { 
-        catMap[t.category] = (catMap[t.category] || 0) + t.amount; 
+        // Normalizar nombre de categoría (sea string u objeto)
+        const catName = typeof t.category === 'object' && t.category !== null 
+          ? (t.category.name || 'Sin categoría')
+          : (t.category || 'Sin categoría');
+
+        const amount = Number(t.amount) || 0;
+        catMap[catName] = (catMap[catName] || 0) + amount; 
       });
 
-    return Object.keys(catMap).map((catName, index) => {
-      return { 
-        name: catName, 
-        value: catMap[catName], 
-        color: CATEGORY_COLORS[index % CATEGORY_COLORS.length] 
-      };
-    });
+    return Object.keys(catMap).map((catName, index) => ({
+      name: catName, 
+      value: catMap[catName], 
+      color: CATEGORY_COLORS[index % CATEGORY_COLORS.length] 
+    }));
   }, [filteredTransactions]);
 
   const historicalData = useMemo(() => {
     const list = [];
+    const safeTxList = Array.isArray(transactions) ? transactions : [];
+
     for (let i = 5; i >= 0; i--) {
-      let d = new Date(selectedYear, selectedMonth - i, 1);
-      let m = d.getMonth();
-      let y = d.getFullYear();
-      const monthTxs = transactions.filter((t) => {
-        const txDate = new Date(t.date + 'T00:00:00');
-        return txDate.getUTCMonth() === m && txDate.getUTCFullYear() === y;
+      // Cálculo manual del mes y año restando i meses
+      let targetMonth = selectedMonth - i;
+      let targetYear = selectedYear;
+
+      while (targetMonth < 0) {
+        targetMonth += 12;
+        targetYear -= 1;
+      }
+
+      const monthTxs = safeTxList.filter((t) => {
+        if (!t || !t.date) return false;
+        // Parsing por String para evitar desajuste UTC/Local
+        const dateStr = String(t.date).split('T')[0];
+        const [yStr, mStr] = dateStr.split('-');
+        
+        const txYear = parseInt(yStr, 10);
+        const txMonth = parseInt(mStr, 10) - 1;
+
+        return txMonth === targetMonth && txYear === targetYear;
       });
 
       list.push({
-        name: `${MONTHS[m] ? MONTHS[m].substring(0, 3) : ''} ${y}`,
-        Ingresos: monthTxs.filter((t) => t.type === 'ingreso').reduce((a, b) => a + b.amount, 0),
-        Gastos: monthTxs.filter((t) => t.type === 'gasto').reduce((a, b) => a + b.amount, 0),
-        Ahorro: monthTxs.filter((t) => t.type === 'ahorro').reduce((a, b) => a + b.amount, 0),
+        name: `${MONTHS[targetMonth] ? MONTHS[targetMonth].substring(0, 3) : ''} ${targetYear}`,
+        Ingresos: monthTxs.filter((t) => t.type === 'ingreso').reduce((a, b) => a + (Number(b.amount) || 0), 0),
+        Gastos: monthTxs.filter((t) => t.type === 'gasto').reduce((a, b) => a + (Number(b.amount) || 0), 0),
+        Ahorro: monthTxs.filter((t) => t.type === 'ahorro').reduce((a, b) => a + (Number(b.amount) || 0), 0),
       });
     }
     return list;
@@ -63,10 +83,10 @@ export const Charts = () => {
               <PieChart>
                 <Pie data={expensePieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={4} dataKey="value">
                   {expensePieData.map((entry, index) => (
-                    <Cell key={index} fill={entry.color} />
+                    <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(val) => [`S/ ${val.toFixed(2)}`, 'Monto']} />
+                <Tooltip formatter={(val) => [`S/ ${Number(val).toFixed(2)}`, 'Monto']} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
@@ -85,7 +105,7 @@ export const Charts = () => {
             <BarChart data={historicalData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(val) => [`S/ ${val.toFixed(2)}`]} />
+              <Tooltip formatter={(val) => [`S/ ${Number(val).toFixed(2)}`]} />
               <Legend />
               <Bar dataKey="Ingresos" fill="#10b981" radius={[4, 4, 0, 0]} />
               <Bar dataKey="Gastos" fill="#f43f5e" radius={[4, 4, 0, 0]} />
