@@ -10,8 +10,8 @@ export const TransactionList = () => {
     if (!searchTerm) return filteredTransactions;
     return filteredTransactions.filter(
       (t) =>
-        t.note.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        t.category.toLowerCase().includes(searchTerm.toLowerCase())
+        (t.note && t.note.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (t.category && t.category.toLowerCase().includes(searchTerm.toLowerCase()))
     );
   }, [filteredTransactions, searchTerm]);
 
@@ -54,6 +54,8 @@ export const TransactionList = () => {
               {filteredList.map((tx) => {
                 const isExpense = tx.type === 'gasto';
                 const isIncome = tx.type === 'ingreso';
+                const amountNum = Number(tx.amount) || 0;
+                const formattedDate = tx.date ? tx.date.split('T')[0] : '';
 
                 return (
                   <tr key={tx.id} className="hover:bg-slate-50/80 transition-colors">
@@ -62,25 +64,25 @@ export const TransactionList = () => {
                         isIncome ? 'bg-emerald-100 text-emerald-800' :
                         isExpense ? 'bg-rose-100 text-rose-800' : 'bg-teal-100 text-teal-800'
                       }`}>
-                        {tx.type.toUpperCase()}
+                        {(tx.type || '').toUpperCase()}
                       </span>
                     </td>
 
                     <td className="py-3 px-2">
                       <div>
-                        <p className="font-bold text-slate-800">{tx.note}</p>
+                        <p className="font-bold text-slate-800">{tx.note || tx.category}</p>
                         <p className="text-[10px] text-slate-400">{tx.category}</p>
                       </div>
                     </td>
 
                     <td className="py-3 px-2 text-slate-500 whitespace-nowrap">
-                      {tx.date}
+                      {formattedDate}
                     </td>
 
                     <td className={`py-3 px-2 text-right font-extrabold whitespace-nowrap ${
                       isIncome ? 'text-emerald-600' : isExpense ? 'text-rose-600' : 'text-teal-600'
                     }`}>
-                      {isExpense ? '-' : '+'}&nbsp;S/ {tx.amount.toFixed(2)}
+                      {isExpense ? '-' : '+'}&nbsp;S/ {amountNum.toFixed(2)}
                     </td>
 
                     <td className="py-3 px-2 text-center">
